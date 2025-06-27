@@ -1,105 +1,188 @@
 # csv_manager.py
-import csv
-import os
-from datetime import datetime
 
-def get_existing_article_ids_and_latest_date(filename):
-    """
-    CSV dosyasındaki mevcut haber ID'lerini ve en son yayın tarihini döndürür.
-    
-    Args:
-        filename (str): CSV dosyasının yolu.
+import csv      # CSV dosyalarını okuma/yazma için kütüphane
+import os       # Dosya sistemi işlemleri için kütüphane
+from datetime import datetime # Tarih ve saat objeleriyle çalışmak için kütüphane
+import logging  # Loglama için kütüphane
 
-    Returns:
-        tuple: (existing_ids_set, latest_publish_datetime_obj)
-               existing_ids_set: Mevcut haber ID'lerinin kümesi (set).
-               latest_publish_datetime_obj: En son haberin yayın tarihi (datetime object) veya None.
+# main.py'deki logger ile aynı logger'ı kullanıyoruz
+logger = logging.getLogger('main_news_bot_logger')
+
+def get_existing_article_ids_and_latest_date(csv_filename):
     """
-    existing_ids = set()
-    latest_publish_date = None # YYYY-MM-DD HH:MM:SS formatında datetime objesi
-    
+    Belirtilen CSV dosyasındaki mevcut haber ID'lerini ve en son haber tarihini okur.
+    Ayrıca WordPress'e gönderilmiş haberlerin ID'lerini de takip eder.
+
+    Parametreler:
+    csv_filename (str): Okunacak CSV dosyasının adı.
+
+    Dönüş:
+    tuple: (set<str>, datetime, dict<str, dict>) -
+           Mevcut haber ID'lerinin kümesi,
+           en son haberin yayın tarihi,
+           ve haberlerin WordPress yayınlama durumlarını ve ID'lerini içeren bir sözlük.
+           Dosya yoksa veya boşsa boş küme, None ve boş sözlük döner.
+    """
+    existing_ids = set() # World News API'den gelen haber ID'leri
+    latest_date = None   # En son haberin tarihi
+    # Her haberin yayınlanma durumunu ve WordPress ID'sini tutacak sözlük
+    # Anahtar: World News API haber ID'si, Değer: {'is_published_to_wp': bool, 'wordpress_post_id': int/None}
+    article_status = {}
+
+    if not os.path.exists(csv_filename):
+        logger.info(f"'{csv_filename}' dosyası henüz mevcut değil.")
+        return existing_ids, latest_date, article_status
+
     try:
-        # Dosya varsa ve boş değilse oku
-        if os.path.exists(filename) and os.path.getsize(filename) > 0:
-            with open(filename, 'r', newline='', encoding='utf-8') as csvfile:
-                reader = csv.DictReader(csvfile)
-                for row in reader:
-                    # Haber ID'sini ekle
-                    if 'id' in row and row['id']: # 'id' alanı var ve boş değilse
-                        existing_ids.add(row['id'])
-                    
-                    # En yeni yayın tarihini bul
-                    if 'publish_date' in row and row['publish_date']:
-                        try:
-                            # API'dan gelen tarih formatı genellikle "YYYY-MM-DD HH:MM:SS" veya "YYYY-MM-DDTHH:MM:SSZ" olabilir.
-                            # 'T' ve 'Z' karakterlerini temizleyip milisaniyelerden önceki kısmı alalım.
-                            date_str = row['publish_date'].replace('T', ' ').replace('Z', '')
-                            # split('.')[0] ile milisaniye kısmını atıyoruz, çünkü strptime standart formatı bekler.
-                            current_date = datetime.strptime(date_str.split('.')[0], "%Y-%m-%d %H:%M:%S")
-                            
-                            if latest_publish_date is None or current_date > latest_publish_date:
-                                latest_publish_date = current_date
-                        except ValueError:
-                            # Tarih formatı hatalıysa bu satırı yoksay
-                            print(f"Uyarı: CSV'deki tarih formatı hatası tespit edildi: {row['publish_date']}")
-                            pass
-        else:
-            print(f"'{filename}' dosyası henüz mevcut değil veya boş.")
-
-    except FileNotFoundError:
-        # Dosya yoksa veya okuma hatası olursa başlangıç değerlerini döndür
-        print(f"'{filename}' dosyası bulunamadı. Yeni bir dosya oluşturulacak.")
-    
-    return existing_ids, latest_publish_date
-
-def save_articles_to_csv(articles, filename, existing_ids_set):
-    """
-    Verilen haber listesini CSV dosyasına kaydeder. Sadece mevcut olmayanları ekler.
-
-    Args:
-        articles (list): API'dan çekilen haberlerin listesi (sözlükler halinde).
-        filename (str): CSV dosyasının yolu.
-        existing_ids_set (set): Mevcut haber ID'lerinin kümesi.
-
-    Returns:
-        int: Kaydedilen yeni haber sayısı.
-    """
-    # Kaydedilecek alanlar. API yanıtındaki anahtar isimleriyle eşleşmeli.
-    fieldnames = ['id', 'title', 'text', 'url', 'publish_date', 'language', 'source_country']
-    
-    # Dosyanın daha önce var olup olmadığını ve başlık satırı gerekip gerekmediğini kontrol et
-    # os.path.getsize(filename) > 0 kontrolü, dosyanın var olup olmadığını ve boş olup olmadığını anlar.
-    file_exists_and_not_empty = os.path.exists(filename) and os.path.getsize(filename) > 0
-
-    new_articles_saved_count = 0
-    with open(filename, 'a', newline='', encoding='utf-8') as csvfile: # 'a' (append) modu ile dosyaya ekleme yapılır
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        
-        # Eğer dosya yeni oluşturulduysa veya boşsa başlık satırını yaz
-        if not file_exists_and_not_empty:
-            writer.writeheader()
-
-        for article in articles:
-            # Her haberin benzersiz ID'sini al
-            article_id = str(article.get('id')) 
+        with open(csv_filename, mode='r', newline='', encoding='utf-8') as file:
+            reader = csv.DictReader(file)
             
-            # Eğer haberin ID'si varsa ve daha önce kaydedilmemişse
-            if article_id and article_id not in existing_ids_set:
-                # Haber verilerini DictWriter için uygun formata getir
-                row_data = {
-                    'id': article_id,
-                    'title': article.get('title', ''),
-                    'text': article.get('text', ''),
-                    'url': article.get('url', ''),
-                    'publish_date': article.get('publish_date', ''),
-                    'language': article.get('language', ''),
-                    'source_country': article.get('source_country', '')
-                }
-                writer.writerow(row_data)
-                existing_ids_set.add(article_id) # Yeni ID'yi sete ekle ki aynı çalıştırmada tekrar eklenmesin
-                new_articles_saved_count += 1
-            # else:
-            #     # Bu kısım debug için kullanılabilir, mevcut haberlerin neden atlandığını görmek isterseniz açabilirsiniz.
-            #     # print(f"Debug: Haber zaten mevcut veya ID'si yok. Başlık: {article.get('title', 'Bilinmeyen Başlık')}")
-                
-    return new_articles_saved_count
+            # Gerekli tüm sütunların olup olmadığını kontrol et
+            required_fieldnames = ['id', 'title', 'publish_date', 'is_published_to_wp', 'wordpress_post_id']
+            if not all(field in reader.fieldnames for field in required_fieldnames):
+                logger.warning(f"'{csv_filename}' dosyasında eksik sütunlar bulundu. Dosya yeniden oluşturulacak.")
+                return set(), None, {} # Hatalı dosya formatı, boş döndür
+
+            for row in reader:
+                article_id = row.get('id')
+                publish_date_str = row.get('publish_date')
+                is_published_to_wp_str = row.get('is_published_to_wp', 'False') # Varsayılan 'False'
+                wordpress_post_id_str = row.get('wordpress_post_id')
+
+                if article_id:
+                    existing_ids.add(article_id)
+                    article_status[article_id] = {
+                        'is_published_to_wp': is_published_to_wp_str.lower() == 'true',
+                        'wordpress_post_id': int(wordpress_post_id_str) if wordpress_post_id_str and wordpress_post_id_str.isdigit() else None
+                    }
+
+                if publish_date_str:
+                    try:
+                        current_date = datetime.strptime(publish_date_str, '%Y-%m-%d %H:%M:%S')
+                        if latest_date is None or current_date > latest_date:
+                            latest_date = current_date
+                    except ValueError:
+                        logger.warning(f"'{publish_date_str}' tarihi geçersiz formatta, atlanıyor.")
+
+        logger.info(f"'{csv_filename}' dosyasında {len(existing_ids)} mevcut haber bulundu. En son tarih: {latest_date}")
+    except Exception as e:
+        logger.error(f"'{csv_filename}' dosyasını okurken hata oluştu: {e}. Boş dönecek.")
+        return set(), None, {} # Hata durumunda boş döndür
+
+    return existing_ids, latest_date, article_status
+
+def save_articles_to_csv(articles, csv_filename, existing_ids):
+    """
+    Yeni çekilen haberleri CSV dosyasına kaydeder.
+    Mevcut haberlerin üzerine yazmaz, sadece yenilerini ekler.
+    'is_published_to_wp' ve 'wordpress_post_id' alanlarını ekler.
+
+    Parametreler:
+    articles (list): Kaydedilecek haberlerin listesi (her haber bir sözlük).
+    csv_filename (str): Kaydedilecek CSV dosyasının adı.
+    existing_ids (set): CSV dosyasında zaten mevcut olan haber ID'lerinin kümesi.
+
+    Dönüş:
+    int: CSV dosyasına yeni kaydedilen haber sayısı.
+    """
+    newly_saved_count = 0
+    # Haberlerin kaydedileceği alanlar (sütun başlıkları)
+    # YENİ SÜTUNLAR EKLENDİ: 'is_published_to_wp', 'wordpress_post_id'
+    fieldnames = ['id', 'title', 'text', 'url', 'publish_date', 'language', 'author', 'image', 'is_published_to_wp', 'wordpress_post_id']
+
+    file_exists = os.path.exists(csv_filename)
+    
+    # Geçici bir liste kullanarak tüm satırları bellekten yazıyoruz
+    rows_to_write = []
+    
+    # Mevcut dosya içeriğini oku (eğer varsa ve boş değilse)
+    current_rows = []
+    if file_exists and os.stat(csv_filename).st_size > 0:
+        try:
+            with open(csv_filename, mode='r', newline='', encoding='utf-8') as file:
+                reader = csv.DictReader(file)
+                # Geçerli sütun başlıklarına sahipse oku
+                if all(field in reader.fieldnames for field in fieldnames[:8]): # İlk 8 sütun yeterli kontrol için
+                     current_rows = list(reader)
+                else:
+                    logger.warning(f"'{csv_filename}' dosyasının sütun başlıkları eski veya eksik. Yeniden oluşturulacak.")
+        except Exception as e:
+            logger.error(f"Mevcut '{csv_filename}' dosyasını okurken hata oluştu: {e}. Dosya sıfırdan yazılacak.")
+            current_rows = [] # Hata durumunda mevcut satırları boşalt
+
+    # Mevcut satırları (yeniden yazmak için) rows_to_write listesine ekle
+    rows_to_write.extend(current_rows)
+
+    for article in articles:
+        article_id = str(article.get('id'))
+
+        if article_id not in existing_ids: # Sadece yeni olanları ekle
+            row_data = {
+                'id': article.get('id', ''),
+                'title': article.get('title', ''),
+                'text': article.get('text', ''),
+                'url': article.get('url', ''),
+                'publish_date': article.get('publish_date', ''),
+                'language': article.get('language', ''),
+                'author': article.get('author', ''),
+                'image': article.get('image', ''),
+                'is_published_to_wp': 'False', # Varsayılan olarak henüz yayınlanmadı
+                'wordpress_post_id': ''       # WordPress ID'si boş
+            }
+            rows_to_write.append(row_data) # Yeni haberi listeye ekle
+            existing_ids.add(article_id)   # Mevcut ID'lere ekle
+            newly_saved_count += 1
+    
+    # Tüm satırları (eski + yeni) dosyaya yaz
+    try:
+        with open(csv_filename, mode='w', newline='', encoding='utf-8') as file: # 'w' modunda açıp dosyayı yeniden yazıyoruz
+            writer = csv.DictWriter(file, fieldnames=fieldnames)
+            writer.writeheader() # Başlık satırını her zaman yaz
+            writer.writerows(rows_to_write) # Tüm satırları yaz
+        logger.info(f"{newly_saved_count} yeni haber '{csv_filename}' dosyasına kaydedildi.")
+    except Exception as e:
+        logger.error(f"Haberler '{csv_filename}' dosyasına kaydedilirken hata oluştu: {e}")
+
+    return newly_saved_count
+
+def update_article_in_csv(csv_filename, article_id, wordpress_post_id):
+    """
+    CSV dosyasındaki belirli bir haberin WordPress yayınlanma durumunu ve post ID'sini günceller.
+    """
+    updated_rows = []
+    found = False
+    fieldnames = ['id', 'title', 'text', 'url', 'publish_date', 'language', 'author', 'image', 'is_published_to_wp', 'wordpress_post_id']
+
+    try:
+        # Mevcut CSV içeriğini oku
+        with open(csv_filename, mode='r', newline='', encoding='utf-8') as infile:
+            reader = csv.DictReader(infile)
+            # Sütun başlıkları eksikse veya farklıysa hata verebiliriz, ancak şimdilik varsayıyoruz ki doğru
+            if not all(field in reader.fieldnames for field in fieldnames[:8]):
+                logger.error(f"CSV dosyasının sütun başlıkları beklenenden farklı, güncelleme yapılamıyor.")
+                return False
+
+            for row in reader:
+                if row.get('id') == article_id:
+                    row['is_published_to_wp'] = 'True'
+                    row['wordpress_post_id'] = str(wordpress_post_id) # WordPress ID'sini string olarak kaydet
+                    found = True
+                    logger.debug(f"  CSV kaydı güncellendi: Haber ID={article_id}, WordPress Post ID={wordpress_post_id}")
+                updated_rows.append(row)
+        
+        if not found:
+            logger.warning(f"  Haber ID '{article_id}' CSV dosyasında bulunamadı, güncelleme yapılamadı.")
+            return False
+
+        # Güncellenmiş içeriği dosyaya geri yaz
+        with open(csv_filename, mode='w', newline='', encoding='utf-8') as outfile:
+            writer = csv.DictWriter(outfile, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(updated_rows)
+        logger.info(f"Haber ID '{article_id}' için CSV kaydı başarıyla güncellendi.")
+        return True
+
+    except Exception as e:
+        logger.error(f"CSV dosyasında haber güncellenirken hata oluştu (ID: {article_id}): {e}")
+        return False
+
