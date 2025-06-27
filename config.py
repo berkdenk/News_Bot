@@ -1,104 +1,103 @@
 # config.py
 
 import os
-import logging # Loglama seviyelerini tanımlamak için gerekli
+import logging  # Required to define logging levels
 
-# --- World News API Temel Ayarları ---
-# API'dan haber çekmek için kullanılan ana URL
+# --- World News API Basic Settings ---
+# Base URL used to fetch news from the API
 BASE_URL = "https://api.worldnewsapi.com/search-news"
 
-# --- Dosya İsimleri ---
-# Çekilen haberlerin kaydedileceği CSV dosyasının adı
+# --- File Names ---
+# Name of the CSV file where fetched news articles will be saved
 CSV_FILENAME = "polonya_turk_haberleri.csv"
 
-# --- Haber Filtreleme ve Arama Parametreleri ---
-# Polonya ile ilgili haberleri filtrelemek için Polonya'nın ISO 3166 ülke kodu
+# --- News Filtering and Search Parameters ---
+# ISO 3166 country code for filtering news related to Poland
 POLAND_COUNTRY_CODE = "PL"
 
-# API'dan aratılacak anahtar kelimeler. 'OR' operatörü ile birden fazla kelime aranabilir.
-# World News API'ın 'text' parametresi için 100 karakter limiti vardır.
+# Keywords to search for in the API. Use 'OR' operator to search for multiple terms.
+# The 'text' parameter in World News API has a 100-character limit.
 SEARCH_KEYWORDS = "Poland AND (Türkiye OR Turkish OR student OR Visa)"
 #SEARCH_KEYWORDS = "Polska AND (Turcja OR turecki OR migracja OR ambasada OR student OR wiza OR ekonomia)"
 #SEARCH_KEYWORDS = "Poland AND (Türkiye OR migration OR student OR visa OR economy)"
 
-# Haberlerin çekileceği dillerin ISO 639-1 kodları
-# 'pl' (Lehçe) ve 'en' (İngilizce) dillerinde haberler çekilecek
-TARGET_LANGUAGES = ["en","pl"]
+# ISO 639-1 language codes for news fetching
+# Fetching news in 'pl' (Polish) and 'en' (English)
+TARGET_LANGUAGES = ["en", "pl"]
 
-# --- Sayfalama ve Limit Ayarları ---
-# Her API isteğinde kaç makale çekileceği
+# --- Pagination and Limit Settings ---
+# Number of articles to fetch per API request
 ARTICLES_PER_REQUEST = 2
-# Her dil için API'dan çekilecek maksimum sayfa sayısı.
-# Bu limit, API kullanım kotasına dikkat etmek için önemlidir.
+# Maximum number of pages to fetch from the API per language.
+# This limit helps avoid exceeding the API usage quota.
 MAX_PAGES_TO_FETCH = 2
-# CSV dosyası boşsa veya yeni bir başlangıç yapılıyorsa, kaç gün öncesine kadar haber çekileceği
+# If the CSV file is empty or a fresh start is desired, how many days back to fetch news from
 INITIAL_HISTORY_DAYS = 30
 
-# --- API İstekleri Arasındaki Bekleme Süresi (Saniye) ---
-# API kullanım limitlerine takılmamak için her istek arasında beklenmesi gereken süre
+# --- Delay Between API Requests (in seconds) ---
+# To avoid hitting API rate limits, a delay is required between requests
 SLEEP_TIME_BETWEEN_REQUESTS = 1
 
-# --- Hata Yönetimi ve Yeniden Deneme Ayarları (Tenacity Kütüphanesi İçin) ---
-# API'ya veya WordPress'e bağlanırken maksimum kaç kez yeniden deneme yapılacağı
+# --- Error Handling and Retry Settings (for Tenacity Library) ---
+# Maximum number of retries when connecting to API or WordPress
 MAX_RETRIES = 5
-# Yeniden denemeler arasında beklenecek süre (saniye cinsinden)
+# Delay between retries (in seconds)
 RETRY_DELAY_SECONDS = 10
 
-# --- Loglama Ayarları ---
-# Log dosyalarının kaydedileceği klasör
+# --- Logging Settings ---
+# Directory where log files will be saved
 LOG_DIR = "logs"
-# Log dosyasının tam yolu
+# Full path to the log file
 LOG_FILE = os.path.join(LOG_DIR, "news_bot.log")
-# Loglama seviyesi.
-# DEBUG: En detaylı loglar (geliştirme aşamasında faydalıdır)
-# INFO: Genel bilgi mesajları
-# WARNING: Potansiyel sorunlar
-# ERROR: Hata durumları
-# CRITICAL: Kritik hatalar (uygulamanın durmasına neden olabilecek)
+# Logging level.
+# DEBUG: Most detailed logs (useful during development)
+# INFO: General info messages
+# WARNING: Potential issues
+# ERROR: Error situations
+# CRITICAL: Critical errors (may cause the application to stop)
 LOG_LEVEL = logging.DEBUG
 
-# --- WordPress Entegrasyon Ayarları ---
-# WordPress REST API'sinin gönderi (posts) uç noktasının URL'si
+# --- WordPress Integration Settings ---
+# URL of the WordPress REST API endpoint for posting content
 WORDPRESS_API_URL = "http://localhost/haberlerim/wp-json/wp/v2/posts"
-# WordPress'e gönderi yayınlamak için kullanılan kullanıcı adı.
-# Bu kullanıcının uygulama parolası '.env' dosyasında tanımlı olmalıdır.
+# Username used to publish posts on WordPress.
+# The application password for this user should be defined in the .env file (not stored here for security).
 WORDPRESS_USERNAME = "aliyigitogun"
-# WORDPRESS_APP_PASSWORD, .env dosyasından çekilecektir. (Güvenlik için doğrudan burada tutulmaz.)
 
-# --- WordPress Kategori ve Etiket ID'leri ---
-# ÖNEMLİ: Bu sözlüklerdeki ID'ler, SİZİN WordPress sitenizdeki kategori ve etiketlerin GERÇEK ID'leri olmalıdır.
-# WordPress admin panelinizden (Yazılar > Kategoriler / Etiketler, düzenleme ekranı URL'sinden) bulabilirsiniz.
+# --- WordPress Category and Tag IDs ---
+# IMPORTANT: The IDs in these dictionaries must match the actual category and tag IDs on YOUR WordPress site.
+# You can find them in the WordPress admin panel (Posts > Categories/Tags, from the edit screen URL).
 
-# Haberleri atamak istediğimiz WordPress kategorilerinin isimleri ve ID'leri
+# WordPress category names and their IDs where news should be assigned
 WORDPRESS_CATEGORIES = {
-    "genel": 1,
-    "siyaset": 3,       # Örneğin: "siyaset", "hükümet", "seçim", "politika", "parlamento"
-    "polonya": 7,       # Örneğin: "polonya", "polska", "varşova", "warszawa", "lehistan"
-    "ekonomi": 5,       # Örneğin: "ekonomi", "gospodarka", "economy", "enflasyon", "inflacja", "ticaret", "handel"
-    "ukrayna": 8,       # Örneğin: "ukrayna", "ukraina", "kyiv", "kiev"
-    "öğrenci": 9,      # Örneğin: "öğrenci", "student", "eğitim", "universite", "burs"
-    "türk": 10,         # Örneğin: "türk", "türkiye", "turkey", "ankara", "istanbul"
-    "vize": 11,         # Örneğin: "vize", "schengen", "pasaport", "göç", "mülteci"
-    "rusya": 12,        # Örneğin: "rusya", "rosja", "moskova", "moscow"
-    "savaş": 13,         # Örneğin: "savaş", "çatışma", "operasyon", "conflict", "war"
-    # Diğer kategoriler...
+    "general": 1,
+    "politics": 3,     # Examples: "politics", "government", "election", "parliament"
+    "poland": 7,       # Examples: "poland", "polska", "warsaw", "varşova"
+    "economy": 5,      # Examples: "economy", "gospodarka", "inflation", "trade"
+    "ukraine": 8,      # Examples: "ukraine", "ukraina", "kyiv", "kiev"
+    "student": 9,      # Examples: "student", "education", "university", "scholarship"
+    "turkish": 10,     # Examples: "turkish", "turkey", "ankara", "istanbul"
+    "visa": 11,        # Examples: "visa", "schengen", "passport", "migration", "refugee"
+    "russia": 12,      # Examples: "russia", "rosja", "moscow", "moskova"
+    "war": 13,         # Examples: "war", "conflict", "operation"
+    # Additional categories...
 }
 
 WORDPRESS_TAGS = {
-    "ukrayna": 14,
-    "rusya": 15,
-    "polonya": 16,
-    "savaş": 17,
-    "ekonomi": 18,
-    "siyaset": 19,
-    "türk": 20,
-    "öğrenci": 21,
-    "vize": 22,
+    "ukraine": 14,
+    "russia": 15,
+    "poland": 16,
+    "war": 17,
+    "economy": 18,
+    "politics": 19,
+    "turkish": 20,
+    "student": 21,
+    "visa": 22,
     "schengen": 23,
-    "abd": 24,          # Örneğin: "abd", "amerika", "usa"
-    "avrupa": 25,       # Örneğin: "avrupa", "avrupa birliği", "ab", "eu"
-    # Diğer etiketler...
+    "usa": 24,         # Examples: "usa", "america", "united states"
+    "europe": 25,      # Examples: "europe", "european union", "eu"
+    # Additional tags...
 }
 
-# Eğer bir haber için hiçbir spesifik kategori belirlenemezse atanacak varsayılan kategori ID'si
+# If no specific category can be determined for a news article, the default category ID to assign
 DEFAULT_WORDPRESS_CATEGORY_ID = 1

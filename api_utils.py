@@ -1,95 +1,96 @@
 # api_utils.py
 
-import requests # HTTP istekleri için kütüphane
-import json     # JSON verilerini işlemek için kütüphane
-import time     # İşlemler arasında beklemek için kütüphane
-import logging  # Loglama için kütüphane
-# tenacity: Hata durumlarında otomatik yeniden deneme yapmak için kullanılan kütüphane
+import requests # Library for HTTP requests
+import json     # Library for processing JSON data
+import time     # Library for pausing execution
+import logging  # Library for logging
+# tenacity: Library used for automatic retries in case of errors
 from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
 
-# config.py'den gerekli ayarları import ediyoruz
+# Importing necessary settings from config.py
 from config import (
-    SEARCH_KEYWORDS,             # Arama anahtar kelimeleri
-    ARTICLES_PER_REQUEST,        # Her istekte çekilecek makale sayısı
-    SLEEP_TIME_BETWEEN_REQUESTS, # İstekler arası bekleme süresi
-    MAX_RETRIES,                 # Maksimum yeniden deneme sayısı
-    RETRY_DELAY_SECONDS          # Yeniden denemeler arası bekleme süresi
+    SEARCH_KEYWORDS,             # Keywords for searching
+    ARTICLES_PER_REQUEST,        # Number of articles to fetch per request
+    SLEEP_TIME_BETWEEN_REQUESTS, # Sleep duration between requests
+    MAX_RETRIES,                 # Maximum number of retries
+    RETRY_DELAY_SECONDS          # Delay duration between retries
 )
 
-# main.py'deki logger ile aynı logger'ı kullanıyoruz, böylece tüm loglar tek bir dosyada toplanır
+# Using the same logger as in main.py, so all logs are collected in one file
 logger = logging.getLogger('main_news_bot_logger')
 
-# --- Retry Dekorasyonu ---
-# Bu dekoratör, 'fetch_news_from_api' fonksiyonu bir hata fırlattığında (Exception),
-# belirlenen sayıda (MAX_RETRIES) ve aralıkta (RETRY_DELAY_SECONDS) tekrar denemesini sağlar.
-# requests.exceptions.RequestException: Network sorunları, timeout gibi HTTP istek hataları
-# json.JSONDecodeError: API'dan gelen yanıtın geçerli bir JSON olmaması durumları
+# --- Retry Decorator ---
+# This decorator ensures that when the 'fetch_news_from_api' function raises an error (Exception),
+# it will retry a specified number of times (MAX_RETRIES) with a defined interval (RETRY_DELAY_SECONDS).
+# requests.exceptions.RequestException: Handles HTTP request errors such as network issues or timeouts.
+# json.JSONDecodeError: Handles cases where the API response is not valid JSON.
 @retry(stop=stop_after_attempt(MAX_RETRIES), wait=wait_fixed(RETRY_DELAY_SECONDS),
        retry=(retry_if_exception_type(requests.exceptions.RequestException) |
               retry_if_exception_type(json.JSONDecodeError)))
 def fetch_news_from_api(api_key, lang, earliest_publish_date, offset):
     """
-    World News API'dan belirli parametrelere göre haberleri çeker.
-    Yeniden deneme (retry) mekanizması içerir.
+    Fetches news from the World News API based on specified parameters.
+    Includes a retry mechanism.
 
-    Parametreler:
-    api_key (str): World News API anahtarı.
-    lang (str): Haberlerin çekileceği dil kodu (örn: "pl", "en").
-    earliest_publish_date (str): Haberlerin çekileceği en eski yayın tarihi (YYYY-MM-DD HH:MM:SS formatında).
-    offset (int): API'dan haber çekmeye başlanacak ofset (sayfalama için).
+    Parameters:
+    api_key (str): World News API key.
+    lang (str): Language code for fetching news (e.g., "pl", "en").
+    earliest_publish_date (str): The earliest publish date for news (in YYYY-MM-DD HH:MM:SS format).
+    offset (int): Offset to start fetching news from the API (for pagination).
 
-    Dönüş:
-    list: Çekilen haberlerin bir listesi (her haber bir sözlük olarak).
+    Returns:
+    list: A list of fetched news articles (each article as a dictionary).
     """
-    url = "https://api.worldnewsapi.com/search-news" # API'ın temel arama URL'si
+    url = "https://api.worldnewsapi.com/search-news" # Base search URL of the API
     params = {
         "api-key": api_key,
         "language": lang,
         "earliest-publish-date": earliest_publish_date,
-        "text": SEARCH_KEYWORDS, # config.py'den gelen anahtar kelimeler
+        "text": SEARCH_KEYWORDS, # Keywords from config.py
         "offset": offset,
-        "number": ARTICLES_PER_REQUEST # Her istekte çekilecek haber sayısı
+        "number": ARTICLES_PER_REQUEST # Number of news articles to fetch per request
     }
 
     try:
-        logger.debug(f"  API isteği gönderiliyor ({lang.upper()} dili, Offset: {offset}).")
-        # HTTP GET isteği gönderilir. timeout: isteğin maksimum kaç saniye beklemesi gerektiğini belirtir.
+        logger.debug(f"  Sending API request (language: {lang.upper()}, Offset: {offset}).")
+        # Send an HTTP GET request. timeout: specifies the maximum time the request should wait.
         response = requests.get(url, params=params, timeout=10)
-        # response.raise_for_status() metodu, 4xx (Client Error) veya 5xx (Server Error) yanıt kodları alındığında
-        # bir HTTPError istisnası fırlatır. Bu, tenacity'nin hatayı yakalamasını sağlar.
+        # The response.raise_for_status() method raises an HTTPError exception
+        # if a 4xx (Client Error) or 5xx (Server Error) response code is received.
+        # This allows 'tenacity' to catch the error.
         response.raise_for_status()
 
-        data = response.json() # Yanıtı JSON formatında ayrıştırır.
-        logger.info(f"API'dan {lang.upper()} dilinde {len(data.get('news', []))} haber çekildi (Offset: {offset}).")
+        data = response.json() # Parse the response in JSON format.
+        logger.info(f"Fetched {len(data.get('news', []))} news articles from API in {lang.upper()} (Offset: {offset}).")
 
-        # API kullanım limitlerine takılmamak için her başarılı istekten sonra bekleme
+        # Pause after each successful request to avoid hitting API rate limits
         time.sleep(SLEEP_TIME_BETWEEN_REQUESTS)
 
-        # 'news' anahtarının olup olmadığını kontrol et, yoksa boş liste dön
+        # Check if 'news' key exists, return an empty list otherwise
         return data.get("news", [])
 
     except requests.exceptions.Timeout:
-        # İstek zaman aşımına uğradığında yakalanan hata
-        logger.error(f"API isteği zaman aşımına uğradı ({lang.upper()} dili, Offset: {offset}).")
-        # Hatayı yeniden fırlatıyoruz ki 'tenacity' bunu yakalayıp yeniden denesin
+        # Error caught when the request times out
+        logger.error(f"API request timed out (language: {lang.upper()}, Offset: {offset}).")
+        # Re-raise the exception so 'tenacity' can catch it and retry
         raise
 
     except requests.exceptions.RequestException as e:
-        # Genel HTTP istek hataları (bağlantı hatası, geçersiz URL vb.)
-        logger.error(f"API isteği sırasında bir hata oluştu ({lang.upper()} dili, Offset: {offset}): {e}")
-        # Eğer yanıtta bir hata mesajı varsa, onu da logla
+        # General HTTP request errors (connection error, invalid URL, etc.)
+        logger.error(f"An error occurred during the API request (language: {lang.upper()}, Offset: {offset}): {e}")
+        # If there's an error message in the response, log that too
         if hasattr(e, 'response') and e.response is not None:
-            logger.debug(f"API yanıtı: {e.response.text[:500]}") # Yanıt metninin ilk 500 karakterini logla
-        raise # Hatayı yeniden fırlat
+            logger.debug(f"API response: {e.response.text[:500]}") # Log the first 500 characters of the response text
+        raise # Re-raise the exception
 
     except json.JSONDecodeError as e:
-        # API'dan gelen yanıtın JSON formatında olmaması durumu
-        logger.error(f"API yanıtı JSON olarak çözümlenemedi ({lang.upper()} dili, Offset: {offset}): {e}")
+        # Case where the API response is not in JSON format
+        logger.error(f"API response could not be parsed as JSON (language: {lang.upper()}, Offset: {offset}): {e}")
         if response is not None:
-            logger.debug(f"API yanıtı metni: {response.text[:500]}")
-        raise # Hatayı yeniden fırlat
+            logger.debug(f"API response text: {response.text[:500]}")
+        raise # Re-raise the exception
 
     except Exception as e:
-        # Yukarıdaki spesifik hatalar dışında oluşan tüm diğer beklenmedik hatalar
-        logger.critical(f"API'dan haber çekerken kritik hata oluştu ({lang.upper()} dili, Offset: {offset}): {e}", exc_info=True)
-        raise # Hatayı yeniden fırlat
+        # All other unexpected errors not covered by the specific exceptions above
+        logger.critical(f"Critical error occurred while fetching news from API (language: {lang.upper()}, Offset: {offset}): {e}", exc_info=True)
+        raise # Re-raise the exception
